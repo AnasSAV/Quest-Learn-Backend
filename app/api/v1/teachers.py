@@ -36,3 +36,14 @@ def list_members(classroom_id: str, db: Session = Depends(get_db), user: Current
         raise HTTPException(404, "classroom not found")
     members = db.query(ClassroomMember).filter(ClassroomMember.classroom_id == classroom_id).all()
     return {"count": len(members), "members": [{"student_id": m.student_id} for m in members]}
+
+@router.delete("/classrooms/{classroom_id}")
+def delete_classroom(classroom_id: str, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
+    if user.role != UserRole.TEACHER.value:
+        raise HTTPException(403, "Only teachers can delete classrooms")
+    classroom = db.query(Classroom).filter(Classroom.id == classroom_id, Classroom.teacher_id == user.id).first()
+    if not classroom:
+        raise HTTPException(404, "classroom not found")
+    db.delete(classroom)
+    db.commit()
+    return {"message": "Classroom deleted successfully"}
