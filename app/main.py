@@ -9,7 +9,12 @@ from .api.v1 import questions as question_routes
 from .api.v1 import attempts as attempt_routes
 
 settings = get_settings()
-app = FastAPI(title="MCQ Homework Grader API")
+
+app = FastAPI(
+    title="MCQ Homework Grader API",
+    description="API for managing MCQ homework assignments with authentication",
+    version="1.0.0"
+)
 
 app.add_middleware(
     CORSMiddleware,
