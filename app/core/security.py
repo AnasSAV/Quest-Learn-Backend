@@ -1,88 +1,29 @@
-from datetime import datetime, timedelta
-from typing import Optional, Union
-from jose import JWTError, jwt
+from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
-from fastapi import HTTPException, status
+import jwt
+from typing import Optional, Dict, Any
+from .config import get_settings
 
-from app.core.config import settings
-
-
-# Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+settings = get_settings()
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plain password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def get_password_hash(password: str) -> str:
-    """Generate password hash."""
+def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(
-    data: dict, expires_delta: Optional[timedelta] = None
-) -> str:
-    """Create JWT access token."""
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.JWT_EXPIRES_MIN)
-    
-    to_encode.update({"exp": expire, "type": "access"})
-    encoded_jwt = jwt.encode(
-        to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM
-    )
-    return encoded_jwt
+def verify_password(password: str, password_hash: str) -> bool:
+    return pwd_context.verify(password, password_hash)
 
 
-def create_refresh_token(
-    data: dict, expires_delta: Optional[timedelta] = None
-) -> str:
-    """Create JWT refresh token."""
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.JWT_REFRESH_EXPIRES_MIN)
-    
-    to_encode.update({"exp": expire, "type": "refresh"})
-    encoded_jwt = jwt.encode(
-        to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM
-    )
-    return encoded_jwt
-
-
-def verify_token(token: str, token_type: str = "access") -> Optional[dict]:
-    """Verify and decode JWT token."""
-    try:
-        payload = jwt.decode(
-            token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
-        )
-        
-        # Check token type
-        if payload.get("type") != token_type:
-            return None
-            
-        # Check expiration
-        exp = payload.get("exp")
-        if exp is None or datetime.utcfromtimestamp(exp) < datetime.utcnow():
-            return None
-            
-        return payload
-    except JWTError:
-        return None
+def create_token(sub: str, role: str, expires_min: int | None = None, extra: Optional[Dict[str, Any]] = None) -> str:
+    exp_min = expires_min or settings.JWT_EXPIRES_MIN
+    now = datetime.now(timezone.utc)
+    payload = {"sub": sub, "role": role, "iat": int(now.timestamp()), "exp": int((now + timedelta(minutes=exp_min)).timestamp())}
+    if extra:
+        payload.update(extra)
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
 
 
 def decode_token(token: str) -> dict:
-    """Decode JWT token and raise HTTPException if invalid."""
-    payload = verify_token(token)
-    if payload is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return payload
+    return jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])

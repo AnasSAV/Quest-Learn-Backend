@@ -1,178 +1,72 @@
-from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.orm import Session
+from ...db.session import get_db
+from ...models.user import User, UserRole
+from ...core.security import hash_password, verify_password, create_token, decode_token
+from ...schemas.auth import RegisterRequest, LoginRequest, TokenResponse
 
-from app.core.deps import get_db, security
-from app.core.security import (
-    verify_password,
-    get_password_hash,
-    create_access_token,
-    create_refresh_token,
-    verify_token
-)
-from app.core.config import settings
-from app.models.user import User, UserRole
-from app.schemas.auth import (
-    UserLogin,
-    UserRegister,
-    Token,
-    TokenRefresh,
-    LoginResponse,
-    RefreshResponse
-)
-from app.schemas.user import UserProfile
+router = APIRouter(prefix="/auth", tags=["auth"])
 
-router = APIRouter()
+# Security scheme for JWT tokens
+security = HTTPBearer()
 
+# Type alias for the current user
+CurrentUser = User
 
-@router.post("/register", response_model=LoginResponse)
-async def register_user(
-    user_data: UserRegister,
-    db: AsyncSession = Depends(get_db)
-):
-    """Register a new user."""
-    # Check if user already exists
-    query = select(User).where(User.email == user_data.email)
-    result = await db.execute(query)
-    existing_user = result.scalar_one_or_none()
-    
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-    
-    # Validate role
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> CurrentUser:
+    """
+    Dependency to get the current authenticated user from JWT token.
+    """
     try:
-        role = UserRole(user_data.role)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid role. Must be TEACHER or STUDENT"
-        )
-    
-    # Create new user
-    hashed_password = get_password_hash(user_data.password)
-    user = User(
-        email=user_data.email,
-        password_hash=hashed_password,
-        full_name=user_data.full_name,
-        role=role
-    )
-    
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    
-    # Generate tokens
-    access_token = create_access_token(
-        data={"sub": str(user.id), "email": user.email, "role": user.role.value}
-    )
-    refresh_token = create_refresh_token(
-        data={"sub": str(user.id)}
-    )
-    
-    return LoginResponse(
-        user=UserProfile.from_orm(user).dict(),
-        token=Token(
-            access_token=access_token,
-            refresh_token=refresh_token,
-            token_type="bearer"
-        )
-    )
-
-
-@router.post("/login", response_model=LoginResponse)
-async def login_user(
-    user_credentials: UserLogin,
-    db: AsyncSession = Depends(get_db)
-):
-    """Authenticate user and return access token."""
-    # Find user by email
-    query = select(User).where(User.email == user_credentials.email)
-    result = await db.execute(query)
-    user = result.scalar_one_or_none()
-    
-    if not user or not verify_password(user_credentials.password, user.password_hash):
+        # Decode the JWT token
+        payload = decode_token(credentials.credentials)
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Generate tokens
-    access_token = create_access_token(
-        data={"sub": str(user.id), "email": user.email, "role": user.role.value}
-    )
-    refresh_token = create_refresh_token(
-        data={"sub": str(user.id)}
-    )
-    
-    return LoginResponse(
-        user=UserProfile.from_orm(user).dict(),
-        token=Token(
-            access_token=access_token,
-            refresh_token=refresh_token,
-            token_type="bearer"
-        )
-    )
-
-
-@router.post("/refresh", response_model=RefreshResponse)
-async def refresh_token(
-    token_data: TokenRefresh,
-    db: AsyncSession = Depends(get_db)
-):
-    """Refresh access token using refresh token."""
-    payload = verify_token(token_data.refresh_token, token_type="refresh")
-    
-    if payload is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload"
-        )
-    
-    # Verify user still exists
-    user = await db.get(User, int(user_id))
+    # Get the user from database
+    user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Generate new access token
-    access_token = create_access_token(
-        data={"sub": str(user.id), "email": user.email, "role": user.role.value}
-    )
-    
-    return RefreshResponse(
-        access_token=access_token,
-        token_type="bearer"
-    )
+    return user
 
+@router.post("/register", response_model=TokenResponse)
+def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+    if payload.role not in ("TEACHER", "STUDENT"):
+        raise HTTPException(400, "role must be TEACHER or STUDENT")
+    exists = db.query(User).filter(User.email == payload.email).first()
+    if exists:
+        raise HTTPException(status_code=400, detail="email already registered")
+    user = User(email=payload.email, password_hash=hash_password(payload.password), role=UserRole(payload.role), full_name=payload.full_name)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = create_token(str(user.id), user.role.value)
+    return TokenResponse(access_token=token)
 
-@router.post("/logout")
-async def logout_user():
-    """Logout user (client should discard tokens)."""
-    return {"message": "Successfully logged out"}
-
-
-@router.get("/me", response_model=UserProfile)
-async def get_current_user_profile(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get current user profile."""
-    from app.core.deps import get_current_user
-    user = await get_current_user(credentials, db)
-    return UserProfile.from_orm(user)
+@router.post("/login", response_model=TokenResponse)
+def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
+    token = create_token(str(user.id), user.role.value)
+    return TokenResponse(access_token=token)
