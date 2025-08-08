@@ -28,8 +28,8 @@ async def create_question(payload: QuestionCreate, db: Session = Depends(get_db)
 async def upload_question_image(file: UploadFile = File(...), db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
     if user.role != UserRole.TEACHER.value:
         raise HTTPException(403, "Only teachers can upload images")
-    if file.content_type not in ("image/png",):
-        raise HTTPException(400, "Only PNG allowed")
+    if file.content_type not in ("image/png", "image/jpeg"):
+        raise HTTPException(400, "Only PNG and JPEG allowed")
     data = await file.read()
     max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024
     if len(data) > max_bytes:
@@ -39,3 +39,14 @@ async def upload_question_image(file: UploadFile = File(...), db: Session = Depe
     if not ok:
         raise HTTPException(500, f"Upload failed: {path}")
     return {"image_key": path}
+
+@router.delete("/{question_id}", response_model=QuestionOut)
+async def delete_question(question_id: str, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
+    if user.role != UserRole.TEACHER.value:
+        raise HTTPException(403, "Only teachers can delete questions")
+    q = db.query(Question).filter(Question.id == question_id).first()
+    if not q:
+        raise HTTPException(404, "question not found")
+    db.delete(q)
+    db.commit()
+    return {"message": "Question deleted successfully"}
