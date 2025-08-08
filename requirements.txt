@@ -7,7 +7,7 @@ pydantic-settings==2.2.1
 # DB
 SQLAlchemy==2.0.29
 psycopg[binary]==3.2.9
-
+psycopg2-binary
 # Auth
 passlib[bcrypt]==1.7.4
 PyJWT==2.8.0
