@@ -18,3 +18,23 @@ class AssignmentOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class AssignmentSummary(BaseModel):
+    id: UUID
+    classroom_id: UUID
+    title: str
+    description: Optional[str] = None
+    opens_at: Optional[datetime] = None
+    due_at: Optional[datetime] = None
+    shuffle_questions: bool = False
+    created_at: datetime
+    classroom_name: str
+    total_questions: int
+    total_attempts: int
+    unique_students_attempted: int
+    completed_attempts: int
+    average_score: Optional[float] = None
+    is_active: bool  # True if assignment is currently open for submissions
+
+    class Config:
+        from_attributes = True
