@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: math-buddy-backend
+    env: docker
+    plan: free
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: prod
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_MIN
+        value: "30"
+      - key: JWT_REFRESH_EXPIRES_MIN
+        value: "43200"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_BUCKET
+        value: math-png
+      - key: ALLOWED_ORIGINS
+        value: https://your-frontend.onrender.com,http://localhost:5173
+      - key: MAX_UPLOAD_MB
+        value: "2"
+      - key: RATE_LIMIT
+        value: 60/minute
