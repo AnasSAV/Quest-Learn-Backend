@@ -216,6 +216,7 @@ def get_student_attempt_result(
             Response.is_correct,
             Response.time_taken_seconds,
             Question.prompt_text,
+            Question.image_key,  # Include image_key
             Question.option_a,
             Question.option_b,
             Question.option_c,
@@ -235,6 +236,7 @@ def get_student_attempt_result(
         response = {
             "question_id": str(row.question_id),
             "prompt_text": row.prompt_text,
+            "image_key": row.image_key,  # Include image_key
             "option_a": row.option_a,
             "option_b": row.option_b,
             "option_c": row.option_c,

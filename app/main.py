@@ -7,6 +7,7 @@ from .api.v1 import students as student_routes
 from .api.v1 import assignments as assignment_routes
 from .api.v1 import questions as question_routes
 from .api.v1 import attempts as attempt_routes
+from .api.v1 import users as user_routes
 
 settings = get_settings()
 
@@ -30,6 +31,7 @@ app.include_router(student_routes.router)
 app.include_router(assignment_routes.router)
 app.include_router(question_routes.router)
 app.include_router(attempt_routes.router)
+app.include_router(user_routes.router)
 
 @app.get("/healthz")
 def healthz():

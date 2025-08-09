@@ -410,9 +410,10 @@ def get_student_assignment_result(
             raise HTTPException(403, "You can only view results for assignments you created")
     elif user.role == UserRole.STUDENT.value:
         # Students can only view their own results
-        if user.id != student_id:
+        if str(user.id) != student_id:
             raise HTTPException(403, "You can only view your own results")
-    
+    else:
+        raise HTTPException(403, "Invalid user role")
     # Get the student's attempt for this assignment
     attempt = (
         db.query(Attempt)
@@ -450,6 +451,7 @@ def get_student_assignment_result(
                 Response.is_correct,
                 Response.time_taken_seconds,
                 Question.prompt_text,
+                Question.image_key,  # Include image_key in query
                 Question.option_a,
                 Question.option_b,
                 Question.option_c,
@@ -468,6 +470,7 @@ def get_student_assignment_result(
             response = {
                 "question_id": str(row.question_id),
                 "prompt_text": row.prompt_text,
+                "image_key": row.image_key,  # Include image_key
                 "option_a": row.option_a,
                 "option_b": row.option_b,
                 "option_c": row.option_c,
