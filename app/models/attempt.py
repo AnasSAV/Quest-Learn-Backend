@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, text
+from sqlalchemy import Column, ForeignKey, Integer, Boolean, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.types import DateTime, Enum
 from ..db.base import Base
@@ -26,5 +26,5 @@ class Response(Base):
     attempt_id = Column(UUID(as_uuid=True), ForeignKey("attempt.id", ondelete="CASCADE"), nullable=False)
     question_id = Column(UUID(as_uuid=True), ForeignKey("question.id", ondelete="CASCADE"), nullable=False)
     chosen_option = Column(Enum(MCQOption, name="mcq_option"), nullable=False)
-    is_correct = Column(Integer, nullable=False)  # 1 or 0 (bool as int for simplicity with some drivers)
+    is_correct = Column(Boolean, nullable=False)  # Boolean type to match database
     time_taken_seconds = Column(Integer, nullable=False)
