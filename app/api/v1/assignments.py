@@ -112,10 +112,11 @@ def get_all_assignments(db: Session = Depends(get_db), user: CurrentUser = Depen
 @router.get("/classroom/{classroom_id}", response_model=list[AssignmentSummary])
 def get_assignments_by_classroom(
     classroom_id: str,
+    student_id: str = None,  # Optional query parameter
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Get all assignments for a specific classroom with detailed statistics"""
+    """Get all assignments for a specific classroom with detailed statistics and optional student status"""
     # Verify the classroom exists
     classroom = db.query(Classroom).filter(Classroom.id == classroom_id).first()
     if not classroom:
@@ -187,10 +188,45 @@ def get_assignments_by_classroom(
     
     assignments_data = assignments_query.all()
     
+    # If student_id is provided, get student-specific attempt status for each assignment
+    student_attempts = {}
+    if student_id:
+        # Verify student_id access permissions
+        if user.role == UserRole.STUDENT.value and str(user.id) != student_id:
+            raise HTTPException(403, "Students can only view their own assignment status")
+        
+        # Get all attempts by this student for assignments in this classroom
+        student_attempt_data = (
+            db.query(
+                Attempt.assignment_id,
+                Attempt.status,
+                Attempt.total_score,
+                Attempt.submitted_at,
+                Attempt.started_at
+            )
+            .filter(
+                Attempt.student_id == student_id,
+                Attempt.assignment_id.in_([row.id for row in assignments_data])
+            )
+            .all()
+        )
+        
+        # Create a lookup dictionary for student attempts
+        student_attempts = {
+            str(attempt.assignment_id): {
+                "status": attempt.status.value,
+                "total_score": attempt.total_score,
+                "submitted_at": attempt.submitted_at,
+                "started_at": attempt.started_at,
+                "is_submitted": attempt.status in [AttemptStatus.SUBMITTED.value, AttemptStatus.LATE.value]
+            }
+            for attempt in student_attempt_data
+        }
+    
     # Convert to list of dictionaries for the response model
     assignments_list = []
     for row in assignments_data:
-        assignments_list.append({
+        assignment_dict = {
             'id': row.id,
             'classroom_id': row.classroom_id,
             'title': row.title,
@@ -206,7 +242,31 @@ def get_assignments_by_classroom(
             'completed_attempts': row.completed_attempts or 0,
             'average_score': float(row.average_score) if row.average_score is not None else None,
             'is_active': row.is_active
-        })
+        }
+        
+        # Add student-specific status if student_id was provided
+        if student_id:
+            assignment_id = str(row.id)
+            if assignment_id in student_attempts:
+                attempt_info = student_attempts[assignment_id]
+                assignment_dict.update({
+                    'student_status': attempt_info['status'],
+                    'student_score': attempt_info['total_score'],
+                    'student_submitted_at': attempt_info['submitted_at'],
+                    'student_started_at': attempt_info['started_at'],
+                    'is_submitted_by_student': attempt_info['is_submitted']
+                })
+            else:
+                # Student hasn't started this assignment
+                assignment_dict.update({
+                    'student_status': 'NOT_STARTED',
+                    'student_score': None,
+                    'student_submitted_at': None,
+                    'student_started_at': None,
+                    'is_submitted_by_student': False
+                })
+        
+        assignments_list.append(assignment_dict)
     
     return assignments_list
 

@@ -35,6 +35,13 @@ class AssignmentSummary(BaseModel):
     completed_attempts: int
     average_score: Optional[float] = None
     is_active: bool  # True if assignment is currently open for submissions
+    
+    # Student-specific fields (populated when student_id parameter is provided)
+    student_status: Optional[str] = None  # NOT_STARTED, IN_PROGRESS, SUBMITTED, LATE
+    student_score: Optional[int] = None
+    student_submitted_at: Optional[datetime] = None
+    student_started_at: Optional[datetime] = None
+    is_submitted_by_student: Optional[bool] = None
 
     class Config:
         from_attributes = True
