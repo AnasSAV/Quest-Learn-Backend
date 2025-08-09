@@ -10,6 +10,7 @@ from ...models.assignment import Assignment
 from ...models.attempt import Attempt, AttemptStatus
 from ...models.classroom import Classroom
 from ...schemas.assignment import AssignmentCreate, AssignmentOut, AssignmentSummary
+from ...schemas.question import QuestionOut
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
 
@@ -151,6 +152,39 @@ def get_assignment(
         "classroom_id": str(a.classroom_id),
         "questions": questions_payload,
     }
+
+@router.get("/{assignment_id}/questions", response_model=list[QuestionOut])
+def get_assignment_questions(
+    assignment_id: str,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Get all questions for a specific assignment"""
+    # First verify the assignment exists
+    assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
+    if not assignment:
+        raise HTTPException(404, "Assignment not found")
+    
+    # Check if user has permission to view this assignment
+    # Teachers can only view assignments they created
+    # Students can view questions for assignments in their classrooms (handled separately)
+    if user.role == UserRole.TEACHER.value:
+        if assignment.created_by != user.id:
+            raise HTTPException(403, "You can only view questions for assignments you created")
+    else:
+        # For students, we would need to check if they're enrolled in the classroom
+        # This would require a classroom membership check
+        raise HTTPException(403, "Students should access questions through attempt endpoints")
+    
+    # Fetch questions ordered by order_index
+    questions = (
+        db.query(Question)
+        .filter(Question.assignment_id == assignment_id)
+        .order_by(Question.order_index.asc())
+        .all()
+    )
+    
+    return questions
 
 @router.delete("/{assignment_id}")
 def delete_assignment(assignment_id: str, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
