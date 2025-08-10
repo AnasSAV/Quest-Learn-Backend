@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
 
@@ -45,3 +45,28 @@ class AssignmentSummary(BaseModel):
 
     class Config:
         from_attributes = True
+
+class StudentAssignmentDetail(BaseModel):
+    # Assignment info
+    id: UUID
+    title: str
+    description: Optional[str] = None
+    classroom_id: UUID
+    classroom_name: str
+    opens_at: Optional[datetime] = None
+    due_at: Optional[datetime] = None
+    shuffle_questions: bool = False
+    created_at: datetime
+    is_active: bool
+    
+    # Student attempt info
+    attempt_id: Optional[UUID] = None
+    student_status: str  # NOT_STARTED, IN_PROGRESS, SUBMITTED, LATE
+    student_score: Optional[int] = None
+    max_possible_score: int
+    percentage: Optional[float] = None
+    started_at: Optional[datetime] = None
+    submitted_at: Optional[datetime] = None
+    
+    # Questions with conditional results
+    questions: List[dict]  # Structure depends on submission status
