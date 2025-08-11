@@ -3,12 +3,13 @@ from uuid import UUID
 
 class RegisterRequest(BaseModel):
     email: EmailStr
+    user_name:str
     password: str
     full_name: str
     role: str  # "TEACHER" or "STUDENT"
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    user_name: str
     password: str
 
 class TokenResponse(BaseModel):

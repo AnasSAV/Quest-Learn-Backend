@@ -13,16 +13,16 @@ def get_current_user_info(user: CurrentUser = Depends(get_current_user)):
     """Get current authenticated user's information"""
     return user
 
-@router.get("/by-email", response_model=UserOut)
-def get_user_by_email(
-    email: str = Query(..., description="Email address to search for"),
+@router.get("/by-username", response_model=UserOut)
+def get_user_by_username(
+    user_name: str = Query(..., description="Username to search for"),
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Get user information by email address"""
-    
-    # Find user by email
-    user = db.query(User).filter(User.email == email).first()
+
+    # Find user by username
+    user = db.query(User).filter(User.user_name == user_name).first()
     
     if not user:
         raise HTTPException(404, "User not found with this email address")
@@ -31,7 +31,7 @@ def get_user_by_email(
     # Teachers can look up students in their classes (for now, allow all teacher lookups)
     # Students can only look up their own info
     if current_user.role == UserRole.STUDENT.value:
-        if current_user.email != email:
+        if current_user.user_name != user_name:
             raise HTTPException(403, "Students can only look up their own information")
     elif current_user.role == UserRole.TEACHER.value:
         # Teachers can look up any user's basic info (for classroom management)

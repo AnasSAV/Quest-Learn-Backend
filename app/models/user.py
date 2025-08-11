@@ -14,5 +14,6 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=False)
     role = Column(Enum(UserRole, name="user_role"), nullable=False)
+    user_name = Column(String, nullable=False)
     full_name = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))

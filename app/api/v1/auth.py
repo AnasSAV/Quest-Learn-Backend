@@ -69,11 +69,11 @@ def login_for_access_token(
     OAuth2 compatible token login for FastAPI docs.
     Use your email as username and your password.
     """
-    user = db.query(User).filter(User.email == form_data.username).first()
+    user = db.query(User).filter(User.user_name == form_data.username).first()
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="username or password incorrect",
             headers={"WWW-Authenticate": "Bearer"},
         )
     token = create_token(str(user.id), user.role.value)
@@ -86,7 +86,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     exists = db.query(User).filter(User.email == payload.email).first()
     if exists:
         raise HTTPException(status_code=400, detail="email already registered")
-    user = User(email=payload.email, password_hash=hash_password(payload.password), role=UserRole(payload.role), full_name=payload.full_name)
+    user = User(email=payload.email, user_name=payload.user_name, password_hash=hash_password(payload.password), role=UserRole(payload.role), full_name=payload.full_name)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -95,8 +95,13 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == payload.email).first()
+    # Find user by username instead of email
+    user = db.query(User).filter(User.user_name == payload.user_name).first()
+
     if not user or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials"
+        )
     token = create_token(str(user.id), user.role.value)
     return TokenResponse(access_token=token, token_type="bearer")

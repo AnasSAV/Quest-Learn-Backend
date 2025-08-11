@@ -30,7 +30,7 @@ def list_classrooms(db: Session = Depends(get_db), user: CurrentUser = Depends(g
     if user.role != UserRole.TEACHER.value:
         raise HTTPException(403, "Only teachers can list classrooms")
     classrooms = db.query(Classroom).filter(Classroom.teacher_id == user.id).all()
-    return {"count": len(classrooms), "classrooms": [{"id": c.id, "name": c.name} for c in classrooms]}
+    return {"count": len(classrooms), "classrooms": [{"id": c.id, "name": c.name, "code": c.code} for c in classrooms]}
 
 
 @router.get("/classrooms/{classroom_id}/members")
