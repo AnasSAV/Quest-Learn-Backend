@@ -569,23 +569,18 @@ def get_student_assignments(
 ):
     """Get all assignments for a specific student with submission status and conditional results"""
     
-    # Verify the student exists
     student = db.query(User).filter(User.id == student_id, User.role == UserRole.STUDENT.value).first()
     if not student:
         raise HTTPException(404, "Student not found")
     
-    # Permission checks
     if user.role == UserRole.STUDENT.value:
-        # Students can only view their own assignments
         if str(user.id) != student_id:
             raise HTTPException(403, "Students can only view their own assignments")
     elif user.role == UserRole.TEACHER.value:
-        # Teachers can view any student's assignments
         pass
     else:
         raise HTTPException(403, "Invalid user role")
     
-    # Get all classrooms the student is enrolled in
     student_classrooms = (
         db.query(Classroom.id)
         .join(ClassroomMember, Classroom.id == ClassroomMember.classroom_id)
@@ -746,6 +741,190 @@ def get_student_assignments(
         result.append(assignment_detail)
     
     return result
+
+
+@router.get("/student/{student_id}/overdue", response_model=list[StudentAssignmentDetail])
+def get_overdue_student_results(
+    student_id: str,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Get all overdue assignments for a student (due date passed) for classrooms the student is enrolled in.
+
+    For each overdue assignment return questions and, when available, the student's responses and statistics.
+    """
+    # Validate student
+    student = db.query(User).filter(User.id == student_id, User.role == UserRole.STUDENT.value).first()
+    if not student:
+        raise HTTPException(404, "Student not found")
+
+    # Permission: students may only view their own overdue results; teachers may view any
+    if user.role == UserRole.STUDENT.value and str(user.id) != student_id:
+        raise HTTPException(403, "Students can only view their own overdue results")
+
+    now = datetime.now(timezone.utc)
+
+    # Get classrooms the student is enrolled in
+    student_classrooms = (
+        db.query(Classroom.id)
+        .join(ClassroomMember, Classroom.id == ClassroomMember.classroom_id)
+        .filter(ClassroomMember.student_id == student_id)
+        .subquery()
+    )
+
+    # Get assignments in those classrooms where due_at is set and due_at < now (overdue)
+    assignments = (
+        db.query(Assignment, Classroom.name.label('classroom_name'))
+        .join(Classroom, Assignment.classroom_id == Classroom.id)
+        .filter(
+            Assignment.classroom_id.in_(student_classrooms),
+            Assignment.due_at.isnot(None),
+            Assignment.due_at < now,
+        )
+        .order_by(Assignment.due_at.desc())
+        .all()
+    )
+
+    if not assignments:
+        return []
+
+    assignment_ids = [a.Assignment.id for a in assignments]
+
+    # Fetch student's attempts for these assignments
+    attempts = (
+        db.query(Attempt)
+        .filter(Attempt.student_id == student_id, Attempt.assignment_id.in_(assignment_ids))
+        .all()
+    )
+    attempts_map = {str(attempt.assignment_id): attempt for attempt in attempts}
+
+    results = []
+
+    for row in assignments:
+        assignment = row.Assignment
+        classroom_name = row.classroom_name
+
+        # Max possible score for the assignment
+        max_possible_score = db.query(func.sum(Question.points)).filter(Question.assignment_id == assignment.id).scalar() or 0
+
+        attempt = attempts_map.get(str(assignment.id))
+
+        attempt_id = None
+        student_status = "NOT_SUBMITTED"
+        student_score = None
+        percentage = None
+        started_at = None
+        submitted_at = None
+        questions = []
+
+        if attempt:
+            attempt_id = attempt.id
+            student_status = attempt.status.value
+            student_score = attempt.total_score
+            started_at = attempt.started_at
+            submitted_at = attempt.submitted_at
+            if max_possible_score > 0 and student_score is not None:
+                percentage = (student_score / max_possible_score) * 100
+
+        # Collect questions and, when attempt is submitted, include responses
+        questions_query = (
+            db.query(
+                Question.id,
+                Question.prompt_text,
+                Question.image_key,
+                Question.option_a,
+                Question.option_b,
+                Question.option_c,
+                Question.option_d,
+                Question.correct_option,
+                Question.points,
+                Question.order_index,
+            )
+            .filter(Question.assignment_id == assignment.id)
+            .order_by(Question.order_index)
+        )
+
+        if attempt and attempt.status in [AttemptStatus.SUBMITTED.value, AttemptStatus.LATE.value]:
+            # Get responses for the submitted attempt
+            responses_data = (
+                db.query(
+                    Response,
+                    Question.id.label('q_id'),
+                    Question.prompt_text,
+                    Question.image_key,
+                    Question.option_a,
+                    Question.option_b,
+                    Question.option_c,
+                    Question.option_d,
+                    Question.correct_option,
+                    Question.points,
+                    Question.order_index,
+                )
+                .join(Question, Response.question_id == Question.id)
+                .filter(Response.attempt_id == attempt.id)
+                .order_by(Question.order_index)
+                .all()
+            )
+
+            # Map by question id
+            for r in responses_data:
+                resp_obj = r.Response
+                qid = str(r.q_id)
+                q = {
+                    "id": qid,
+                    "prompt_text": r.prompt_text,
+                    "image_key": r.image_key,
+                    "option_a": r.option_a,
+                    "option_b": r.option_b,
+                    "option_c": r.option_c,
+                    "option_d": r.option_d,
+                    "chosen_option": resp_obj.chosen_option,
+                    "is_correct": bool(resp_obj.is_correct),
+                    "correct_option": r.correct_option.value,
+                    "points_earned": r.points if resp_obj.is_correct else 0,
+                    "max_points": r.points,
+                    "time_taken_seconds": resp_obj.time_taken_seconds,
+                    "order_index": r.order_index,
+                }
+                questions.append(q)
+        else:
+            # No submitted attempt: return questions without student answers
+            for q in questions_query.all():
+                questions.append({
+                    "id": str(q.id),
+                    "prompt_text": q.prompt_text,
+                    "image_key": q.image_key,
+                    "option_a": q.option_a,
+                    "option_b": q.option_b,
+                    "option_c": q.option_c,
+                    "option_d": q.option_d,
+                    "points": q.points,
+                    "order_index": q.order_index,
+                })
+
+        results.append({
+            "id": assignment.id,
+            "title": assignment.title,
+            "description": assignment.description,
+            "classroom_id": assignment.classroom_id,
+            "classroom_name": classroom_name,
+            "opens_at": assignment.opens_at,
+            "due_at": assignment.due_at,
+            "shuffle_questions": assignment.shuffle_questions,
+            "created_at": assignment.created_at,
+            # assignment is overdue so it's not active for submissions
+            "is_active": False,
+            "attempt_id": attempt_id,
+            "student_status": student_status,
+            "student_score": student_score,
+            "max_possible_score": max_possible_score,
+            "percentage": percentage,
+            "started_at": started_at,
+            "submitted_at": submitted_at,
+            "questions": questions,
+        })
+
+    return results
 
 @router.delete("/{assignment_id}")
 def delete_assignment(assignment_id: str, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
