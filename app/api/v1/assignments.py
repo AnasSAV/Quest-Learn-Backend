@@ -926,6 +926,87 @@ def get_overdue_student_results(
 
     return results
 
+
+@router.get("/student/{student_id}/scores")
+def get_student_scores(
+    student_id: str,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Return list of assignments for the student's classrooms with the student's score and classroom name.
+
+    Response items: { assignment_id, assignment_title, student_score, classroom_name }
+    """
+    # Validate student
+    student = db.query(User).filter(User.id == student_id, User.role == UserRole.STUDENT.value).first()
+    if not student:
+        raise HTTPException(404, "Student not found")
+
+    # Permission: students may only view their own scores; teachers may view any student
+    if user.role == UserRole.STUDENT.value and str(user.id) != student_id:
+        raise HTTPException(403, "Students can only view their own scores")
+
+    # Get classrooms the student is enrolled in
+    student_classrooms = (
+        db.query(Classroom.id)
+        .join(ClassroomMember, Classroom.id == ClassroomMember.classroom_id)
+        .filter(ClassroomMember.student_id == student_id)
+        .subquery()
+    )
+
+    # Get assignments in those classrooms
+    assignments = (
+        db.query(Assignment.id.label('assignment_id'), Assignment.title.label('assignment_title'), Classroom.name.label('classroom_name'))
+        .join(Classroom, Assignment.classroom_id == Classroom.id)
+        .filter(Assignment.classroom_id.in_(student_classrooms))
+        .order_by(Assignment.created_at.desc())
+        .all()
+    )
+
+    if not assignments:
+        return []
+
+    assignment_ids = [a.assignment_id for a in assignments]
+
+    # Get student's attempts for these assignments
+    attempts = (
+        db.query(Attempt.assignment_id, Attempt.total_score)
+        .filter(Attempt.student_id == student_id, Attempt.assignment_id.in_(assignment_ids))
+        .all()
+    )
+    attempts_map = {str(a.assignment_id): a.total_score for a in attempts}
+
+    # Get max possible score (sum of question points) per assignment
+    points_data = (
+        db.query(Question.assignment_id, func.sum(Question.points).label('max_points'))
+        .filter(Question.assignment_id.in_(assignment_ids))
+        .group_by(Question.assignment_id)
+        .all()
+    )
+    points_map = {str(p.assignment_id): p.max_points for p in points_data}
+
+    out = []
+    for a in assignments:
+        assignment_id_str = str(a.assignment_id)
+        student_score = attempts_map.get(assignment_id_str)
+        max_points = points_map.get(assignment_id_str, 0) or 0
+
+        percentage = None
+        if student_score is not None and max_points > 0:
+            try:
+                percentage = round((float(student_score) / float(max_points)) * 100, 2)
+            except Exception:
+                percentage = None
+
+        out.append({
+            'assignment_id': a.assignment_id,
+            'assignment_title': a.assignment_title,
+            'percentage': percentage,
+            'classroom_name': a.classroom_name,
+        })
+
+    return out
+
 @router.delete("/{assignment_id}")
 def delete_assignment(assignment_id: str, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
     a = db.query(Assignment).filter(Assignment.id == assignment_id).first()
